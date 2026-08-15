@@ -22,5 +22,8 @@ class KnowledgeService:
     def archive(self, document_id: str) -> dict:
         return self.engine.archive_document(document_id)
 
+    def replace_all(self, documents: list[dict]) -> dict:
+        return self.engine.replace_documents(documents)
+
     def status(self) -> dict:
         return self.engine.status()

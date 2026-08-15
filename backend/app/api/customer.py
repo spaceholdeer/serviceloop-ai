@@ -11,11 +11,14 @@ from sqlalchemy.orm import Session
 
 from app.agents.customer_service import CustomerServiceAgent, CustomerServiceDependencies
 from app.db import get_session
+from app.db.session import create_session_factory
+from app.repositories import KnowledgeOperationsRepository
 from app.schemas.customer import (
     ConversationCreateRequest,
     ConversationResponse,
     CustomerChatRequest,
     CustomerChatResponse,
+    CustomerHumanMessageRequest,
     MessageResponse,
 )
 from app.services.customer_chat import (
@@ -23,13 +26,28 @@ from app.services.customer_chat import (
     ConversationUnavailableError,
     CustomerChatService,
 )
+from app.services.knowledge import KnowledgeService
 
 router = APIRouter(prefix="/api/customer", tags=["customer"])
 
 
 @lru_cache(maxsize=1)
+def get_runtime_knowledge_service() -> KnowledgeService:
+    """从 MySQL 恢复知识，并让客服端与运营端共享同一份运行时索引。"""
+
+    service = KnowledgeService()
+    try:
+        with create_session_factory()() as session:
+            documents = KnowledgeOperationsRepository(session).list_published_payloads()
+            service.replace_all(documents)
+    except Exception as exc:
+        raise RuntimeError(f"知识索引恢复失败：{exc}") from exc
+    return service
+
+
+@lru_cache(maxsize=1)
 def get_customer_service_dependencies() -> CustomerServiceDependencies:
-    return CustomerServiceDependencies()
+    return CustomerServiceDependencies(knowledge=get_runtime_knowledge_service())
 
 
 @lru_cache(maxsize=1)
@@ -115,6 +133,31 @@ def list_conversation_messages(
     except ConversationNotFoundError as exc:
         raise _not_found() from exc
     return [MessageResponse.model_validate(message) for message in messages]
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    response_model=MessageResponse,
+)
+def send_message_to_human(
+    conversation_id: str,
+    payload: CustomerHumanMessageRequest,
+    service: Annotated[CustomerChatService, Depends(get_customer_conversation_service)],
+) -> MessageResponse:
+    try:
+        message = service.send_human_message(
+            conversation_id=conversation_id,
+            customer_id=payload.customer_id,
+            message=payload.content,
+        )
+    except ConversationNotFoundError as exc:
+        raise _not_found() from exc
+    except ConversationUnavailableError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"conversation is not handled by a human agent: {exc}",
+        ) from exc
+    return MessageResponse.model_validate(message)
 
 
 @router.post("/chat", response_model=CustomerChatResponse)

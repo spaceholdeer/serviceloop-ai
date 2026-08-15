@@ -14,6 +14,11 @@ class CustomerChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
 
 
+class CustomerHumanMessageRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=64)
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class CustomerChatResponse(BaseModel):
     conversation_id: str
     conversation_status: str

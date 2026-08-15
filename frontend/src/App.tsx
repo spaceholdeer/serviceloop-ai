@@ -16,8 +16,15 @@ import {
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiError, listConversations, listMessages, sendChat } from "./lib/api";
+import {
+  ApiError,
+  listConversations,
+  listMessages,
+  sendChat,
+  sendMessageToHuman,
+} from "./lib/api";
 import type { ApiMessage, Conversation, DisplayMessage, ToolEvent } from "./types";
+import RichText from "./RichText";
 
 const CUSTOMER_ID = "customer-demo-001";
 
@@ -133,7 +140,7 @@ function MessageBubble({ message }: { message: DisplayMessage }) {
           <span>{isCustomer ? "你" : isHuman ? "人工客服" : "ServiceLoop"}</span>
           <time>{formatTime(message.createdAt)}</time>
         </div>
-        <div className="message__bubble">{message.content}</div>
+        <div className="message__bubble"><RichText>{message.content}</RichText></div>
         {!isCustomer && message.tools && message.tools.length > 0 && (
           <ToolTrace tools={message.tools} rewrittenQuery={message.rewrittenQuery} />
         )}
@@ -217,7 +224,8 @@ function App() {
     () => conversations.find((item) => item.id === activeId) || null,
     [activeId, conversations],
   );
-  const isLocked = activeConversation?.status !== undefined && activeConversation.status !== "active";
+  const conversationStatus = activeConversation?.status || "active";
+  const isLocked = ["waiting_for_human", "resolved", "closed"].includes(conversationStatus);
 
   async function refreshConversations(preferredId?: string) {
     try {
@@ -239,6 +247,21 @@ function App() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
+
+  useEffect(() => {
+    if (!activeId || !["waiting_for_human", "human_active"].includes(conversationStatus)) return;
+
+    const poll = window.setInterval(() => {
+      void Promise.all([
+        listMessages(activeId, CUSTOMER_ID),
+        listConversations(CUSTOMER_ID),
+      ]).then(([history, items]) => {
+        setMessages(history.map(toDisplayMessage));
+        setConversations(items);
+      }).catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(poll);
+  }, [activeId, conversationStatus]);
 
   async function openConversation(conversation: Conversation) {
     setActiveId(conversation.id);
@@ -292,6 +315,18 @@ function App() {
     setError(null);
 
     try {
+      if (conversationStatus === "human_active" && activeId) {
+        const response = await sendMessageToHuman({
+          conversationId: activeId,
+          customerId: CUSTOMER_ID,
+          content,
+        });
+        setMessages((items) => items.map((item) => (
+          item.id === optimistic.id ? toDisplayMessage(response) : item
+        )));
+        await refreshConversations(activeId);
+        return;
+      }
       const response = await sendChat({
         customerId: CUSTOMER_ID,
         conversationId: activeId || undefined,
@@ -330,15 +365,10 @@ function App() {
     }
   }
 
-  const conversationStatus = activeConversation?.status || "active";
   const lockedCopy: Partial<Record<string, { notice: string; placeholder: string }>> = {
     waiting_for_human: {
       notice: "当前服务已进入人工队列，请等待客服接入",
       placeholder: "人工客服接入后可继续沟通",
-    },
-    human_active: {
-      notice: "人工客服正在处理本次服务",
-      placeholder: "当前由人工客服处理",
     },
     resolved: {
       notice: "本次服务已解决，如有新问题请新建服务",
@@ -446,7 +476,7 @@ function App() {
                 <time>{new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(new Date())}</time>
               </div>
               {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
-              {sending && (
+              {sending && conversationStatus !== "human_active" && (
                 <article className="message message--service">
                   <div className="message__avatar"><span>SL</span></div>
                   <div className="typing-card" role="status">
@@ -471,7 +501,11 @@ function App() {
               aria-label="服务问题"
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isLocked ? currentLockedCopy?.placeholder : "描述你的问题，或输入订单号…"}
+              placeholder={isLocked
+                ? currentLockedCopy?.placeholder
+                : conversationStatus === "human_active"
+                  ? "回复人工客服…"
+                  : "描述你的问题，或输入订单号…"}
               rows={1}
               disabled={sending || isLocked}
               maxLength={4000}

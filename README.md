@@ -9,7 +9,7 @@ AI 客服运营平台。它把客户咨询、AI 处理、人工接管、数据�
 ## UI 设计基线
 
 所有前端页面都必须遵守 [ServiceLoop UI 设计规范](docs/ui-design-guidelines.md)。该规范适用于
-客户前端 `/customer`、人工客服工作台 `/workspace` 和运营后台 `/operations`，后续新增页面
+客户前端 `/customer`、人工客服工作台 `/agent` 和运营后台 `/operations`，后续新增页面
 也默认沿用同一套视觉语言与验收标准。
 
 核心要求是：界面必须像一个可信、克制、可追踪的企业服务产品，而不是通用 AI 模板。
@@ -31,6 +31,7 @@ AI 客服运营平台。它把客户咨询、AI 处理、人工接管、数据�
 FastAPI 和 React。启动完成后访问：
 
 - 客户前端：`http://127.0.0.1:5173/customer`
+- 人工客服工作台：`http://127.0.0.1:5173/agent`
 - API 文档：`http://127.0.0.1:8000/docs`
 
 按 `Ctrl+C` 会关闭 FastAPI 和 React，但不会删除 MySQL 容器或数据库 volume。需要手动
@@ -58,7 +59,7 @@ flowchart TB
     KOA["知识运营 Agent"]
 
     Services["六个确定性 Service<br/>知识 / 订单 / 物流 / 工单 / 人工 / 数据"]
-    Data["客服数据中台<br/>会话 / Tool Call / 转人工 / 人工结论 / Bad Case / Knowledge Gap / Dataset"]
+    Data["客服数据中台<br/>会话 / Tool Call / 转人工 / 人工结论 / Bad Case / Knowledge Gap"]
     RAG["内部 RAG<br/>Dense + BM25 + RRF + ReRank"]
 
     Customer --> CSA
@@ -82,7 +83,7 @@ flowchart TB
 
 ### 1. 用户端
 
-用户真正使用的客服聊天页面，计划入口为 `/customer`。
+用户真正使用的客服聊天页面，入口为 `/customer`。
 
 用户可以：
 
@@ -97,10 +98,10 @@ flowchart TB
 
 ### 2. 人工客服端
 
-人工客服工作台，计划入口为 `/workspace`。
+人工客服工作台入口为 `/agent`。
 
 客服可以查看待接管会话、完整聊天上下文、用户订单、AI 已调用的工具和转人工原因，
-然后直接接管聊天、创建或处理工单并结束会话。
+然后接管聊天、发送人工回复并结束会话。工单处理将在后续版本接入。
 
 每次 AI 转人工都必须附带一份接管包：
 
@@ -122,8 +123,6 @@ flowchart TB
 - 查询和筛选历史会话；
 - 查看人工接管记录、Bad Case 和 Knowledge Gap；
 - 让数据运营 Agent 分析高频失败原因；
-- 查看值得加入评测集的真实案例；
-- 导出 CSV 或 JSONL 数据集；
 - 直接新增或修改知识并使新版本生效。
 
 第一版不设计独立的知识审核流。运营人员确认内容后可以直接发布，系统保留知识版本，
@@ -186,12 +185,13 @@ Knowledge Tool
 
 改写最多执行一次，并保留原问题中的商品型号、订单号、时间、金额和否定含义。系统记录
 `original_query`、`rewritten_query`、`rewrite_count` 以及两次检索的最佳 ReRank 分数，
-供后续评测和运营分析。
+供后续运营分析。
 
 证据决策结果记录 `intent`、`action`、`reason` 和两次检索分数。所有转人工在创建接管任务前
 都会经过 Knowledge Gap 判定。知识为空、ReRank 相关性不足或规则不明确时生成 `pending`
 候选；用户主动要求人工、实际退款操作、工具故障和循环超限只保留判定记录，不直接进入
-待补充知识列表。`0.35` 是第一版演示信号，后续应使用评测集校准，不作为唯一决策开关。
+待补充知识列表。`0.35` 是第一版演示信号，后续根据真实运行数据和人工反馈调整，不作为
+唯一决策开关。
 
 ### 数据运营 Agent
 
@@ -200,7 +200,7 @@ Knowledge Tool
 > 最近售后问题为什么经常转人工？
 
 它会筛选相关会话和工具调用，归纳主要原因，返回相关失败案例、知识缺失数量和改进建议。
-它还负责发现高频问题、工具异常、典型 Bad Case，并协助生成评测数据集。
+它还负责发现高频问题、工具异常和典型 Bad Case。
 
 ### 知识运营 Agent
 
@@ -240,10 +240,8 @@ Service 输出结构化结果和明确错误，不自行决定客服策略。Age
 | Feedback | 用户评价和客服内部反馈 |
 | Bad Case | 失败类型、影响范围和关联会话 |
 | Knowledge Gap | 缺失知识、相关案例、频率和建议草稿 |
-| Dataset | 从真实案例筛选出的评测或训练数据 |
 
-数据中台首先支持查询、筛选、查看详情、Agent 分析以及 CSV／JSONL 导出，不在第一版引入
-额外的大数据组件。
+数据中台首先支持查询、筛选、查看详情和 Agent 分析，不在第一版引入额外的大数据组件。
 
 ## 三条必须跑通的演示链路
 
@@ -378,13 +376,11 @@ serviceloop-ai/
 │   └── tests/               # 后端、RAG 和业务闭环测试
 ├── frontend/                # 用户端、人工客服端、运营端
 ├── database/seed/           # 本地演示数据
-├── evaluation/datasets/     # 评测数据集
-├── evaluation/results/      # 评测结果
 └── docs/                    # 架构和设计决策
 ```
 
-客户聊天前端位于 `frontend/`，使用 React、TypeScript 和 Vite，与 `backend/` 完全分离。
-启动方式见 [frontend/README.md](frontend/README.md)。
+客户聊天端和人工客服工作台位于 `frontend/`，使用 React、TypeScript 和 Vite，与
+`backend/` 完全分离。启动方式见 [frontend/README.md](frontend/README.md)。
 
 ## 当前完成情况
 
@@ -408,19 +404,24 @@ serviceloop-ai/
 - 实现二次低分后的结构化证据决策，可继续回答、追问澄清或转人工；
 - 修复 MySQL 同秒写入时历史消息可能因 UUID 排序而颠倒的问题；
 - 对所有转人工执行 Knowledge Gap 判定，并提供待补充知识候选查询接口。
+- 提供人工接管队列、接管详情、领取、回复和解决接口；
+- 实现独立 `/agent` 人工客服工作台，展示客户会话、转接原因、Agent 摘要和查询轨迹；
+- 人工接入后允许客户和客服继续对话，并由客户侧轮询同步最新状态；
+- 人工解决任务时原子写入最终回复和 Human Resolution，并同步结束会话；
+- 使用 Impeccable 设计规范统一客户聊天端与人工工作台，并完成桌面和移动端检查。
 
-目前尚未实现完整三个前端、真实订单／物流数据、人工客服领取与处理队列、知识缺失候选
-持久化与完整运营 API，以及数据运营和知识运营 Agent。客户问答闭环已经持久化，但运营
-闭环仍属于后续阶段，不应在 README 中被误认为已经完成。
+目前尚未实现运营前端、真实订单／物流数据、知识持久化、知识缺失候选持久化与完整运营
+API，以及数据运营和知识运营 Agent。客户问答和人工接管闭环已经持久化，但运营闭环仍
+属于后续阶段，不应在 README 中被误认为已经完成。
 
 ## 建议开发顺序
 
-1. 完成人工客服工作台和接管包；
-2. 在现有五个核心模型上补充 Feedback、Bad Case、Knowledge Gap 和 Dataset 等运营模型；
-3. 完成运营端的数据查询、Bad Case、Knowledge Gap 和导出；
+1. 持久化知识文档并在 FastAPI 启动时重建 RAG 索引；
+2. 在现有五个核心模型上补充 Feedback、Bad Case 和 Knowledge Gap 等运营模型；
+3. 完成运营端的数据查询、Bad Case、Knowledge Gap 和知识补充；
 4. 实现数据运营 Agent 与知识运营 Agent；
 5. 跑通知识更新后的数据飞轮 Demo；
-6. 补充评测集和完整演示数据。
+6. 补充完整演示数据。
 
 这个顺序优先保证业务闭环真实可演示，再逐步增强模型效果和工程能力。
 
@@ -460,6 +461,17 @@ GET  /api/customer/conversations?customer_id=...
 GET  /api/customer/conversations/{id}?customer_id=...
 GET  /api/customer/conversations/{id}/messages?customer_id=...
 POST /api/customer/chat
+POST /api/customer/conversations/{id}/messages  # 人工服务中客户继续回复
+```
+
+人工客服工作台 API：
+
+```text
+GET  /api/agent/handoffs?status=queued&status=active
+GET  /api/agent/handoffs/{id}
+POST /api/agent/handoffs/{id}/accept
+POST /api/agent/handoffs/{id}/messages
+POST /api/agent/handoffs/{id}/resolve
 ```
 
 演示订单号为 `ORD-202608-1001` 和 `ORD-202608-1002`。

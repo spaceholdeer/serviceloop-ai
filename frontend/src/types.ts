@@ -63,3 +63,29 @@ export interface DisplayMessage {
   handoffReason?: string | null;
   rewrittenQuery?: string | null;
 }
+
+export type HandoffStatus = "queued" | "assigned" | "active" | "resolved" | "cancelled";
+
+export interface HandoffSummary {
+  id: string;
+  conversation_id: string;
+  customer_id: string;
+  subject: string | null;
+  reason_code: string;
+  agent_summary: string;
+  status: HandoffStatus;
+  assigned_agent_id: string | null;
+  requested_at: string;
+  accepted_at: string | null;
+  resolved_at: string | null;
+  message_count: number;
+  latest_message: string;
+  updated_at: string;
+}
+
+export interface HandoffDetail extends HandoffSummary {
+  reason_detail: string | null;
+  customer_question: string;
+  context_package: Record<string, unknown>;
+  messages: ApiMessage[];
+}

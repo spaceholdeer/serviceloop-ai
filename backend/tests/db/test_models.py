@@ -4,7 +4,17 @@ from sqlalchemy.orm import configure_mappers
 from sqlalchemy.schema import CreateTable
 
 from app.db.base import Base
-from app.db.models import Conversation, Handoff, HumanResolution, Message, ToolCall
+from app.db.models import (
+    Conversation,
+    Handoff,
+    HumanResolution,
+    KnowledgeDocument,
+    KnowledgeDraft,
+    KnowledgeGap,
+    KnowledgeVersion,
+    Message,
+    ToolCall,
+)
 
 
 def test_customer_service_core_tables_are_registered():
@@ -14,6 +24,10 @@ def test_customer_service_core_tables_are_registered():
         "tool_calls",
         "handoffs",
         "human_resolutions",
+        "knowledge_documents",
+        "knowledge_versions",
+        "knowledge_gaps",
+        "knowledge_drafts",
     }.issubset(Base.metadata.tables)
 
 
@@ -24,6 +38,7 @@ def test_model_relationships_can_be_configured():
     assert inspect(Conversation).relationships.tool_calls.mapper.class_ is ToolCall
     assert inspect(Conversation).relationships.handoffs.mapper.class_ is Handoff
     assert inspect(Handoff).relationships.resolution.mapper.class_ is HumanResolution
+    assert inspect(KnowledgeDocument).relationships.versions.mapper.class_ is KnowledgeVersion
 
 
 def test_all_core_tables_compile_for_mysql_8():

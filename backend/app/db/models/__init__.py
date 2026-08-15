@@ -8,6 +8,15 @@ from app.db.models.conversation import (
     ToolCall,
     ToolCallStatus,
 )
+from app.db.models.knowledge import (
+    KnowledgeDocument,
+    KnowledgeDocumentStatus,
+    KnowledgeDraft,
+    KnowledgeDraftStatus,
+    KnowledgeGap,
+    KnowledgeGapStatus,
+    KnowledgeVersion,
+)
 from app.db.models.support import Handoff, HandoffStatus, HumanResolution
 
 __all__ = [
@@ -16,6 +25,13 @@ __all__ = [
     "Handoff",
     "HandoffStatus",
     "HumanResolution",
+    "KnowledgeDocument",
+    "KnowledgeDocumentStatus",
+    "KnowledgeDraft",
+    "KnowledgeDraftStatus",
+    "KnowledgeGap",
+    "KnowledgeGapStatus",
+    "KnowledgeVersion",
     "Message",
     "MessageRole",
     "ToolCall",

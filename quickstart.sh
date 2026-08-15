@@ -154,6 +154,7 @@ kill -0 "$FRONTEND_PID" 2>/dev/null || fail "React 启动失败。"
 
 printf "\n%b\n" "${GREEN}${BOLD}ServiceLoop AI 已启动${RESET}"
 printf "%s\n" "客户前端:  http://127.0.0.1:5173/customer"
+printf "%s\n" "客服工作台: http://127.0.0.1:5173/agent"
 printf "%s\n" "API 文档:  http://127.0.0.1:8000/docs"
 printf "%s\n" "健康检查:  http://127.0.0.1:8000/health"
 printf "\n%s\n" "按 Ctrl+C 关闭前后端；MySQL 数据会继续保留。"

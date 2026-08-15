@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import Select, case, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Conversation, Handoff, Message, ToolCall
+from app.db.models import Conversation, Handoff, KnowledgeGap, Message, ToolCall
 
 
 class CustomerConversationRepository:
@@ -51,3 +51,6 @@ class CustomerConversationRepository:
 
     def add_handoff(self, handoff: Handoff) -> None:
         self.session.add(handoff)
+
+    def add_knowledge_gap(self, knowledge_gap: KnowledgeGap) -> None:
+        self.session.add(knowledge_gap)

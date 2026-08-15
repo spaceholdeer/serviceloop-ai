@@ -14,6 +14,7 @@ from app.db.models import (
     ConversationStatus,
     Handoff,
     HandoffStatus,
+    KnowledgeGap,
     Message,
     MessageRole,
     ToolCall,
@@ -76,6 +77,32 @@ class CustomerChatService:
 
     def list_conversations(self, *, customer_id: str) -> list[Conversation]:
         return self.repository.list_for_customer(customer_id)
+
+    def send_human_message(
+        self,
+        *,
+        conversation_id: str,
+        customer_id: str,
+        message: str,
+    ) -> Message:
+        """人工接管后保存客户消息，不再调用 Customer Service Agent。"""
+
+        conversation = self.get_conversation(
+            conversation_id=conversation_id,
+            customer_id=customer_id,
+        )
+        if conversation.status != ConversationStatus.HUMAN_ACTIVE.value:
+            raise ConversationUnavailableError(conversation.status)
+        record = Message(
+            conversation_id=conversation.id,
+            role=MessageRole.CUSTOMER.value,
+            source="customer",
+            content=message.strip(),
+        )
+        self.repository.add_message(record)
+        conversation.updated_at = utc_now()
+        self._commit()
+        return record
 
     def chat(
         self,
@@ -211,6 +238,19 @@ class CustomerChatService:
                 )
             )
             conversation.status = ConversationStatus.WAITING_FOR_HUMAN.value
+
+        gap_data = result.get("knowledge_gap_candidate")
+        if gap_data:
+            self.repository.add_knowledge_gap(
+                KnowledgeGap(
+                    id=str(gap_data.get("knowledge_gap_id") or uuid4()),
+                    conversation_id=conversation.id,
+                    question=str(gap_data.get("question") or customer_message),
+                    reason=str(gap_data.get("reason") or "knowledge_insufficient"),
+                    evidence=gap_data.get("evidence") or {},
+                    status=str(gap_data.get("status") or "pending"),
+                )
+            )
 
         try:
             conversation.updated_at = utc_now()

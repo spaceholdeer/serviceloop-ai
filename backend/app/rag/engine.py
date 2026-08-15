@@ -86,6 +86,66 @@ class RAGEngine:
                 source=source,
             )
 
+    def replace_documents(self, documents: list[dict]) -> dict:
+        """用持久化知识重建完整快照，并在成功后一次性切换。"""
+
+        with self._write_lock:
+            prepared: list[tuple[dict, list[str]]] = []
+            texts: list[str] = []
+            for item in documents:
+                title = str(item["title"]).strip()
+                content = str(item["content"]).strip()
+                if not title or not content:
+                    raise ValueError("持久化知识的标题和正文不能为空。")
+                pieces = chunk_text(content, self.chunk_size, self.chunk_overlap)
+                prepared.append((item, pieces))
+                texts.extend(pieces)
+
+            embeddings = self._get_embedder().encode(texts) if texts else []
+            offset = 0
+            restored: dict[str, KnowledgeDocument] = {}
+            for item, pieces in prepared:
+                document_id = str(item["id"])
+                version = int(item["version"])
+                vectors = embeddings[offset : offset + len(pieces)]
+                offset += len(pieces)
+                chunks = tuple(
+                    Chunk(
+                        id=f"{document_id}:v{version}:{index}",
+                        document_id=document_id,
+                        document_version=version,
+                        title=str(item["title"]).strip(),
+                        source=str(item.get("source") or "operations"),
+                        chunk_index=index,
+                        text=text,
+                        embedding=tuple(float(value) for value in vector),
+                    )
+                    for index, (text, vector) in enumerate(
+                        zip(pieces, vectors, strict=True)
+                    )
+                )
+                restored[document_id] = KnowledgeDocument(
+                    id=document_id,
+                    title=str(item["title"]).strip(),
+                    content=str(item["content"]).strip(),
+                    version=version,
+                    source=str(item.get("source") or "operations"),
+                    chunks=chunks,
+                )
+
+            index_version = self.index_manager.rebuild(
+                [chunk for document in restored.values() for chunk in document.chunks]
+            )
+            self._documents = restored
+            self._history = {
+                document_id: [document] for document_id, document in restored.items()
+            }
+            return {
+                "document_count": len(restored),
+                "chunk_count": self.index_manager.chunk_count,
+                "index_version": index_version,
+            }
+
     def _upsert_document(
         self,
         *,
