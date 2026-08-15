@@ -1,1 +1,45 @@
-"""订单服务，下一阶段继续实现。"""
+"""确定性的订单查询服务。"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+
+DEFAULT_ORDERS = {
+    "ORD-202608-1001": {
+        "order_id": "ORD-202608-1001",
+        "customer_id": "customer-demo-001",
+        "product_name": "X3 Pro 智能手表",
+        "status": "shipped",
+        "paid_at": "2026-08-12T10:30:00+08:00",
+        "shipped_at": "2026-08-13T16:20:00+08:00",
+        "amount": 1299.0,
+    },
+    "ORD-202608-1002": {
+        "order_id": "ORD-202608-1002",
+        "customer_id": "customer-demo-001",
+        "product_name": "X3 Pro 充电底座",
+        "status": "processing",
+        "paid_at": "2026-08-15T09:10:00+08:00",
+        "shipped_at": None,
+        "amount": 199.0,
+    },
+}
+
+
+class OrderService:
+    def __init__(self, orders: dict[str, dict] | None = None):
+        self._orders = deepcopy(orders if orders is not None else DEFAULT_ORDERS)
+
+    def get_order(self, *, customer_id: str, order_id: str) -> dict:
+        """查询属于当前客户的订单，不向其他客户泄露订单是否存在。"""
+
+        order = self._orders.get(order_id.strip())
+        if order is None or order["customer_id"] != customer_id:
+            return {
+                "ok": False,
+                "data": None,
+                "error_code": "order_not_found",
+                "message": "未找到该客户的订单，请确认订单号。",
+            }
+        public_order = {key: value for key, value in order.items() if key != "customer_id"}
+        return {"ok": True, "data": public_order, "error_code": None}

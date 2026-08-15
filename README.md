@@ -6,6 +6,36 @@ ServiceLoop AI 不是一个单独的聊天机器人，而是一套可以完整�
 AI 客服运营平台。它把客户咨询、AI 处理、人工接管、数据沉淀、运营分析和知识更新
 连接起来，让人工解决过的问题逐步变成 AI 下一次可以直接解决的问题。
 
+## UI 设计基线
+
+所有前端页面都必须遵守 [ServiceLoop UI 设计规范](docs/ui-design-guidelines.md)。该规范适用于
+客户前端 `/customer`、人工客服工作台 `/workspace` 和运营后台 `/operations`，后续新增页面
+也默认沿用同一套视觉语言与验收标准。
+
+核心要求是：界面必须像一个可信、克制、可追踪的企业服务产品，而不是通用 AI 模板。
+开发时优先表达业务状态和操作路径，避免紫蓝渐变、居中营销大标题、等宽圆角卡片墙、
+星光或机器人装饰、点阵背景、过度阴影和没有真实来源的指标。每次前端改动都要完成桌面端、
+移动端以及空状态、加载、错误、禁用和转人工状态的浏览器检查。前端工作流使用
+[Impeccable](https://github.com/pbakaus/impeccable) 的 `shape`、`polish` 和 `audit` 命令辅助
+设计与验收，但项目规范和真实业务状态始终优先。
+
+## 一键启动
+
+首次准备好根目录 `.env` 后，在项目根目录只需要运行：
+
+```bash
+./quickstart.sh
+```
+
+脚本会自动检查 Docker，启动 MySQL 8，同步前后端依赖，创建数据库表，并同时启动
+FastAPI 和 React。启动完成后访问：
+
+- 客户前端：`http://127.0.0.1:5173/customer`
+- API 文档：`http://127.0.0.1:8000/docs`
+
+按 `Ctrl+C` 会关闭 FastAPI 和 React，但不会删除 MySQL 容器或数据库 volume。需要手动
+停止数据库时运行 `docker compose stop mysql`；下次执行 `./quickstart.sh` 会继续使用原数据。
+
 项目最核心的闭环是：
 
 ```text
@@ -108,6 +138,60 @@ flowchart TB
 
 它可以调用知识、订单、物流、工单和人工服务，但这些 Service 本身不是 Agent。
 当知识不足、业务规则不明确、工具失败或风险较高时，Agent 应转人工而不是编造答案。
+
+当前客户服务 Agent 使用 LangGraph 编排。DeepSeek 负责理解意图、决定是否调用 Tool，
+并在低相关检索重试后执行结构化证据决策；`ToolNode` 负责执行 Knowledge、Order、
+Logistics、Ticket 和 Human Tool。Data Service 由图节点自动调用，不作为 Tool 交给模型选择。
+
+```text
+START -> Agent -> ToolNode -> 记录 Tool Call -> Agent
+                 |                |
+                 |                +-> 首次低分 -> Query Rewrite -> ToolNode
+                 |                                      |
+                 |                                      +-> 二次低分 -> 证据决策
+                 |                                                       ├─ 回答
+                 |                                                       ├─ 追问
+                 +---- 工具失败／Agent 判断高风险 ------------------------+-> 人工接管
+Agent 生成最终回答或澄清问题 -> 保存消息 -> END
+```
+
+当前转人工规则保持简单且可解释：
+
+- 用户明确要求人工客服时直接转人工，不调用模型；
+- Agent 区分“退款／退货条款咨询”和“实际办理退款／退货”；条款咨询先检索知识，实际办理
+  由 Agent 调用 Human Tool 转人工；
+- 知识检索没有结果或最佳 `rerank_score` 低于 `0.35` 时，先受控改写问题并重试一次；
+- 第二次检索仍低分时，Rerank 只作为证据信号，证据决策节点结合原问题、用户意图、
+  检索片段和分数，在“继续回答／追问澄清／转人工”之间输出结构化决策；
+- Tool 执行异常或 Agent 超过六轮仍未解决时转人工；
+- Agent 判断知识不足或规则不明确时可以主动调用 Human Tool。
+
+问题改写属于 Customer Service Agent 的确定性 Workflow，不修改 RAG 算法，也不作为 Tool
+交给 Agent 自由调用：
+
+```text
+Knowledge Tool
+  ↓
+代码判断 Top-1 rerank_score
+  ├─ 达标 → Agent 回答
+  └─ 首次不达标 → Query Rewrite 节点
+                        ↓
+                   再检索一次
+                        ├─ 达标 → Agent 回答
+                        └─ 仍不达标 → Evidence Decision 节点
+                                           ├─ 证据覆盖问题 → Agent 回答
+                                           ├─ 缺少关键信息 → 追问澄清
+                                           └─ 知识不足／规则不明 → Knowledge Gap 判定 → 人工接管
+```
+
+改写最多执行一次，并保留原问题中的商品型号、订单号、时间、金额和否定含义。系统记录
+`original_query`、`rewritten_query`、`rewrite_count` 以及两次检索的最佳 ReRank 分数，
+供后续评测和运营分析。
+
+证据决策结果记录 `intent`、`action`、`reason` 和两次检索分数。所有转人工在创建接管任务前
+都会经过 Knowledge Gap 判定。知识为空、ReRank 相关性不足或规则不明确时生成 `pending`
+候选；用户主动要求人工、实际退款操作、工具故障和循环超限只保留判定记录，不直接进入
+待补充知识列表。`0.35` 是第一版演示信号，后续应使用评测集校准，不作为唯一决策开关。
 
 ### 数据运营 Agent
 
@@ -242,16 +326,41 @@ React 三端页面
        ↓
 3 个 Agent + 6 个 Service
        ↓
-数据库 + 内部 RAG
+MySQL 8 + 内部 RAG
 ```
 
 - FastAPI 为三个使用端提供统一后端接口；
 - Agent、Service、RAG 保持清晰模块边界，但暂不拆成多个微服务；
-- 数据库保存客服闭环和知识版本；
+- MySQL 8 保存客服闭环、业务数据和知识版本；
+- SQLAlchemy 2 负责 ORM、建表和简单事务回滚；
 - Redis 暂不作为核心依赖，后续只在确有需要时保存 Session 临时状态；
 - 最终使用 Docker Compose 一次启动前端、后端、数据库和可选 Redis。
 
 架构边界说明见 [docs/architecture.md](docs/architecture.md)。
+
+## 数据库
+
+ServiceLoop AI 正式使用 MySQL 8，不使用 SQLite。数据库相关文件按职责放置：
+
+```text
+serviceloop-ai/
+├── backend/
+│   └── app/db/              # SQLAlchemy Base、连接、建表、事务和 ORM 模型
+├── database/seed/           # 本地演示种子数据
+└── docker-compose.yml       # 本地 MySQL 8 容器
+```
+
+这是简历演示项目，数据库只保留五张核心表，不加入数据库锁、读写分离、复杂连接池或迁移
+框架。连接信息收敛成根目录 `.env` 中一个 `DATABASE_URL`，应用不会读取系统环境变量中的
+同名配置。首次启动时运行：
+
+```bash
+docker compose up -d mysql
+cd backend
+uv run python -m app.db.init_db
+```
+
+写操作可以使用 `transactional_session()`。正常结束时自动提交，发生异常时自动回滚。
 
 ## 目录规划
 
@@ -274,6 +383,9 @@ serviceloop-ai/
 └── docs/                    # 架构和设计决策
 ```
 
+客户聊天前端位于 `frontend/`，使用 React、TypeScript 和 Vite，与 `backend/` 完全分离。
+启动方式见 [frontend/README.md](frontend/README.md)。
+
 ## 当前完成情况
 
 当前是 v0.1 项目骨架，已经完成：
@@ -283,23 +395,80 @@ serviceloop-ai/
 - 实现 Dense、BM25、RRF 和 ReRank 检索流程；
 - 实现知识动态添加、修改、版本历史和原子索引切换；
 - 提供不依赖预置知识即可启动的最小 RAG 测试页面；
-- 增加中英文知识与检索测试。
+- 增加中英文知识与检索测试；
+- 建立简化的 MySQL 8 和 SQLAlchemy 2 数据库基础设施；
+- 实现 Conversation、Message、Tool Call、Handoff 和 Human Resolution 核心模型；
+- 实现订单、物流、工单、人工和数据 Service 的本地演示版本；
+- 使用 LangGraph ToolNode 和条件边跑通客户服务 Agent 的直接回答与转人工分支；
+- 提供客户会话创建、列表、详情、历史消息和 `POST /api/customer/chat` 客服接口；
+- 将每轮客户消息、Agent 回复、Tool Call 和人工接管任务原子写入 MySQL；
+- 在下一轮对话中加载已持久化历史，并在转人工后停止 Agent 继续回复；
+- 实现显式人工请求的确定性转人工，以及 Agent 对条款咨询和实际退款操作的意图区分；
+- 实现低质量检索的一次受控 Query Rewrite 和重试；
+- 实现二次低分后的结构化证据决策，可继续回答、追问澄清或转人工；
+- 修复 MySQL 同秒写入时历史消息可能因 UUID 排序而颠倒的问题；
+- 对所有转人工执行 Knowledge Gap 判定，并提供待补充知识候选查询接口。
 
-目前尚未实现完整三个前端、真实订单／物流数据、人工接管队列、数据中台持久化和三个 Agent
-的正式编排。这些内容属于后续业务闭环阶段，不应在 README 中被误认为已经完成。
+目前尚未实现完整三个前端、真实订单／物流数据、人工客服领取与处理队列、知识缺失候选
+持久化与完整运营 API，以及数据运营和知识运营 Agent。客户问答闭环已经持久化，但运营
+闭环仍属于后续阶段，不应在 README 中被误认为已经完成。
 
 ## 建议开发顺序
 
-1. 建立 Conversation、Message、Tool Call、Handoff、Human Resolution 等数据模型；
-2. 实现订单、物流、工单、人工和数据 Service 的本地可演示版本；
-3. 跑通客户服务 Agent 的“直接解决／转人工”两条分支；
-4. 完成人工客服工作台和接管包；
-5. 完成运营端的数据查询、Bad Case、Knowledge Gap 和导出；
-6. 实现数据运营 Agent 与知识运营 Agent；
-7. 跑通知识更新后的数据飞轮 Demo；
-8. 补充评测集、Docker Compose 和完整演示数据。
+1. 完成人工客服工作台和接管包；
+2. 在现有五个核心模型上补充 Feedback、Bad Case、Knowledge Gap 和 Dataset 等运营模型；
+3. 完成运营端的数据查询、Bad Case、Knowledge Gap 和导出；
+4. 实现数据运营 Agent 与知识运营 Agent；
+5. 跑通知识更新后的数据飞轮 Demo；
+6. 补充评测集和完整演示数据。
 
 这个顺序优先保证业务闭环真实可演示，再逐步增强模型效果和工程能力。
+
+## 调用客户服务 Agent
+
+在根目录 `.env` 填写：
+
+```env
+DEEPSEEK_API_KEY=你的密钥
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+启动后端：
+
+```bash
+cd backend
+uv run uvicorn app.main:app --reload
+```
+
+调用接口：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/customer/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customer_id": "customer-demo-001",
+    "message": "ORD-202608-1001 什么时候能到？"
+  }'
+```
+
+首次请求不传 `conversation_id`，后端会创建会话并在响应中返回 ID；后续请求携带这个 ID
+即可继续上下文。前端使用的客户侧 API 如下：
+
+```text
+POST /api/customer/conversations
+GET  /api/customer/conversations?customer_id=...
+GET  /api/customer/conversations/{id}?customer_id=...
+GET  /api/customer/conversations/{id}/messages?customer_id=...
+POST /api/customer/chat
+```
+
+演示订单号为 `ORD-202608-1001` 和 `ORD-202608-1002`。
+
+查看当前进程内待补充知识候选：
+
+```bash
+curl http://127.0.0.1:8000/api/operations/knowledge-gaps
+```
 
 ## 启动当前 RAG 测试页面
 

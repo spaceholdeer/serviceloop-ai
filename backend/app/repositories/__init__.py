@@ -1,1 +1,5 @@
-"""确定性业务服务使用的数据库仓储层。"""
+"""ServiceLoop 数据访问层。"""
+
+from app.repositories.customer_conversation import CustomerConversationRepository
+
+__all__ = ["CustomerConversationRepository"]

@@ -1,6 +1,11 @@
 fastapi<1,>=0.115
+langchain<2,>=1.0
+langchain-openai<2,>=1.0
+langgraph<2,>=1.0
 pydantic<3,>=2.10
+pymysql<2,>=1.1
 python-dotenv<2,>=1.0
+sqlalchemy<3,>=2.0
 uvicorn<1,>=0.34
 
 [dev]

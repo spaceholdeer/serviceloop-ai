@@ -1,0 +1,15 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: serviceloop
+      MYSQL_USER: serviceloop
+      MYSQL_PASSWORD: serviceloop_dev
+      MYSQL_ROOT_PASSWORD: serviceloop_root_dev
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:
