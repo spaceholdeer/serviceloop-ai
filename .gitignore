@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
+evaluation/results/*
+!evaluation/results/.gitkeep

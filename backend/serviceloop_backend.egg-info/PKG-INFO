@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: serviceloop-backend
+Version: 0.1.0
+Summary: ServiceLoop AI backend and in-process hybrid RAG
+Requires-Python: <3.14,>=3.11
+Requires-Dist: fastapi<1,>=0.115
+Requires-Dist: pydantic<3,>=2.10
+Requires-Dist: python-dotenv<2,>=1.0
+Requires-Dist: uvicorn<1,>=0.34
+Provides-Extra: rag
+Requires-Dist: dashscope>=1.25; extra == "rag"
+Requires-Dist: FlagEmbedding>=1.2; extra == "rag"
+Requires-Dist: langchain-community<1,>=0.4; extra == "rag"
+Requires-Dist: transformers<5,>=4.44; extra == "rag"
+Provides-Extra: dev
+Requires-Dist: httpx<1,>=0.28; extra == "dev"
+Requires-Dist: pytest<10,>=8.4; extra == "dev"
+Requires-Dist: ruff<1,>=0.12; extra == "dev"

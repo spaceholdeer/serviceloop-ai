@@ -1,0 +1,15 @@
+fastapi<1,>=0.115
+pydantic<3,>=2.10
+python-dotenv<2,>=1.0
+uvicorn<1,>=0.34
+
+[dev]
+httpx<1,>=0.28
+pytest<10,>=8.4
+ruff<1,>=0.12
+
+[rag]
+dashscope>=1.25
+FlagEmbedding>=1.2
+langchain-community<1,>=0.4
+transformers<5,>=4.44
