@@ -1,7 +1,7 @@
 # ServiceLoop Web
 
-ServiceLoop 的客户聊天端和人工客服工作台，使用 React、TypeScript 和 Vite。前端与后端
-目录完全分离，两个使用端复用同一套视觉语言和 API 基础设施。
+ServiceLoop 的客户聊天端、人工客服工作台和运营后台，使用 React、TypeScript 和
+Vite。前端与后端目录完全分离，三个使用端复用同一套视觉语言和 API 基础设施。
 
 ## 启动
 
@@ -16,6 +16,7 @@ pnpm dev
 
 - 客户聊天端：`http://127.0.0.1:5173/customer`
 - 人工客服工作台：`http://127.0.0.1:5173/agent`
+- 运营后台：`http://127.0.0.1:5173/operations`
 
 开发环境默认请求
 `http://127.0.0.1:8000`，需要覆盖时新建 `frontend/.env.local`：
@@ -39,3 +40,23 @@ pnpm build
 5. 会话与 Handoff 同时进入已解决状态。
 
 当前使用固定演示客服身份 `agent-demo-001`，正式登录和权限不属于 v0.1 范围。
+
+## 当前知识运营闭环
+
+1. Customer Service Agent 把证据不足导致的转人工记录为 Knowledge Gap；
+2. 运营后台选择一个或多个待补缺口，Knowledge Operations Agent 按相似问题归组；
+3. Agent 只根据检索证据和人工处理结论生成可编辑知识草稿；
+4. 运营人员核对、修改并直接发布，系统写入 MySQL 知识版本；
+5. 发布成功后完整重建 Dense 与 BM25 快照，并原子切换当前 RAG 索引。
+
+当前使用固定演示运营身份 `operations-demo-001`，第一版只支持文本知识。
+
+## 当前数据飞轮
+
+1. 客户在已解决会话中提交“解决了／仍有问题”反馈；
+2. Data Operations Agent 从低评分、失败 Tool Call 和异常 Handoff 中提取稳定信号；
+3. 信号去重后生成 Bad Case，并按知识、工具、体验和流程归成改进任务；
+4. 运营人员在 `/operations` 的“数据飞轮”查看原始案例证据；
+5. 知识／体验类任务可回流到“待补知识”，其他任务记录修复和验证结论后关闭。
+
+所有数字都是当前 MySQL 中的真实演示存量，不展示虚构趋势或经营指标。

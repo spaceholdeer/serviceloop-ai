@@ -10,6 +10,8 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
+  ThumbsDown,
+  ThumbsUp,
   UserRound,
   Wrench,
   X,
@@ -22,6 +24,7 @@ import {
   listMessages,
   sendChat,
   sendMessageToHuman,
+  submitConversationFeedback,
 } from "./lib/api";
 import type { ApiMessage, Conversation, DisplayMessage, ToolEvent } from "./types";
 import RichText from "./RichText";
@@ -217,6 +220,8 @@ function App() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [feedbackState, setFeedbackState] = useState<"idle" | "submitting" | "submitted">("idle");
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -226,6 +231,11 @@ function App() {
   );
   const conversationStatus = activeConversation?.status || "active";
   const isLocked = ["waiting_for_human", "resolved", "closed"].includes(conversationStatus);
+
+  useEffect(() => {
+    setFeedbackState("idle");
+    setFeedbackRating(null);
+  }, [activeId]);
 
   async function refreshConversations(preferredId?: string) {
     try {
@@ -365,6 +375,24 @@ function App() {
     }
   }
 
+  async function submitFeedback(rating: number) {
+    if (!activeId || feedbackState === "submitting") return;
+    setFeedbackState("submitting");
+    setError(null);
+    try {
+      await submitConversationFeedback({
+        conversationId: activeId,
+        customerId: CUSTOMER_ID,
+        rating,
+      });
+      setFeedbackRating(rating);
+      setFeedbackState("submitted");
+    } catch (reason) {
+      setFeedbackState("idle");
+      setError(reason instanceof ApiError ? reason.message : "服务反馈提交失败，请稍后重试。");
+    }
+  }
+
   const lockedCopy: Partial<Record<string, { notice: string; placeholder: string }>> = {
     waiting_for_human: {
       notice: "当前服务已进入人工队列，请等待客服接入",
@@ -493,6 +521,19 @@ function App() {
         <footer className="composer-area">
           {isLocked && (
             <div className="locked-notice"><Clock3 size={15} /> {currentLockedCopy?.notice}</div>
+          )}
+          {conversationStatus === "resolved" && activeId && (
+            <div className="service-feedback" aria-live="polite">
+              {feedbackState === "submitted" ? (
+                <span>感谢反馈，{feedbackRating === 5 ? "这会帮助我们保留有效做法。" : "这条会话会进入运营复盘。"}</span>
+              ) : (
+                <>
+                  <span>这次服务解决了你的问题吗？</span>
+                  <button type="button" disabled={feedbackState === "submitting"} onClick={() => void submitFeedback(5)}><ThumbsUp size={14} />解决了</button>
+                  <button type="button" disabled={feedbackState === "submitting"} onClick={() => void submitFeedback(2)}><ThumbsDown size={14} />仍有问题</button>
+                </>
+              )}
+            </div>
           )}
           <form className="composer" onSubmit={handleSubmit}>
             <textarea

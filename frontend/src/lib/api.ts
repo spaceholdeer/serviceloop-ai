@@ -1,9 +1,19 @@
 import type {
   ApiMessage,
+  BadCase,
   ChatResponse,
   Conversation,
+  CustomerFeedback,
+  DataOperationsOverview,
+  DataOperationsRun,
   HandoffDetail,
   HandoffSummary,
+  ImprovementTask,
+  KnowledgeDocument,
+  KnowledgeDraft,
+  KnowledgeGap,
+  KnowledgeVersion,
+  OperationsOverview,
 } from "../types";
 
 const API_BASE_URL = (
@@ -82,6 +92,22 @@ export function sendMessageToHuman(payload: {
   });
 }
 
+export function submitConversationFeedback(payload: {
+  conversationId: string;
+  customerId: string;
+  rating: number;
+  comment?: string;
+}): Promise<CustomerFeedback> {
+  return request(`/api/customer/conversations/${payload.conversationId}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: payload.customerId,
+      rating: payload.rating,
+      comment: payload.comment || null,
+    }),
+  });
+}
+
 export function listHandoffs(statuses: string[]): Promise<HandoffSummary[]> {
   const query = new URLSearchParams();
   statuses.forEach((status) => query.append("status", status));
@@ -127,5 +153,134 @@ export function resolveHandoff(payload: {
       reply_to_customer: payload.replyToCustomer,
       internal_notes: payload.internalNotes || null,
     }),
+  });
+}
+
+export function getOperationsOverview(): Promise<OperationsOverview> {
+  return request("/api/operations/overview");
+}
+
+export function listKnowledgeGaps(status = "pending"): Promise<KnowledgeGap[]> {
+  return request(`/api/operations/knowledge-gaps?status=${encodeURIComponent(status)}`);
+}
+
+export function dismissKnowledgeGap(gapId: string): Promise<KnowledgeGap> {
+  return request(`/api/operations/knowledge-gaps/${gapId}/dismiss`, { method: "POST" });
+}
+
+export function runKnowledgeAgent(gapIds: string[]): Promise<{
+  processed_gap_count: number;
+  drafts: KnowledgeDraft[];
+  message: string;
+}> {
+  return request("/api/operations/knowledge-agent/run", {
+    method: "POST",
+    body: JSON.stringify({ gap_ids: gapIds, operator_id: "operations-demo-001" }),
+  });
+}
+
+export function listKnowledgeDrafts(): Promise<KnowledgeDraft[]> {
+  return request("/api/operations/knowledge-drafts");
+}
+
+export function updateKnowledgeDraft(
+  draftId: string,
+  payload: { title: string; content: string },
+): Promise<KnowledgeDraft> {
+  return request(`/api/operations/knowledge-drafts/${draftId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function publishKnowledgeDraft(draftId: string): Promise<{
+  draft: KnowledgeDraft;
+  document: KnowledgeDocument;
+}> {
+  return request(`/api/operations/knowledge-drafts/${draftId}/publish`, {
+    method: "POST",
+    body: JSON.stringify({ operator_id: "operations-demo-001" }),
+  });
+}
+
+export function listKnowledgeDocuments(): Promise<KnowledgeDocument[]> {
+  return request("/api/operations/knowledge-documents");
+}
+
+export function createKnowledgeDocument(payload: {
+  title: string;
+  content: string;
+}): Promise<KnowledgeDocument> {
+  return request("/api/operations/knowledge-documents", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, operator_id: "operations-demo-001" }),
+  });
+}
+
+export function updateKnowledgeDocument(
+  documentId: string,
+  payload: { title: string; content: string },
+): Promise<KnowledgeDocument> {
+  return request(`/api/operations/knowledge-documents/${documentId}`, {
+    method: "PUT",
+    body: JSON.stringify({ ...payload, operator_id: "operations-demo-001" }),
+  });
+}
+
+export function listKnowledgeVersions(documentId: string): Promise<KnowledgeVersion[]> {
+  return request(`/api/operations/knowledge-documents/${documentId}/versions`);
+}
+
+export function archiveKnowledgeDocument(documentId: string): Promise<KnowledgeDocument> {
+  return request(`/api/operations/knowledge-documents/${documentId}`, { method: "DELETE" });
+}
+
+export function getDataOperationsOverview(): Promise<DataOperationsOverview> {
+  return request("/api/operations/data-overview");
+}
+
+export function listBadCases(): Promise<BadCase[]> {
+  return request("/api/operations/bad-cases");
+}
+
+export function listImprovementTasks(): Promise<ImprovementTask[]> {
+  return request("/api/operations/improvement-tasks");
+}
+
+export function listDataOperationsRuns(): Promise<DataOperationsRun[]> {
+  return request("/api/operations/data-agent/runs?limit=8");
+}
+
+export function runDataOperationsAgent(): Promise<{
+  run: DataOperationsRun;
+  bad_cases: BadCase[];
+  improvement_tasks: ImprovementTask[];
+}> {
+  return request("/api/operations/data-agent/run", {
+    method: "POST",
+    body: JSON.stringify({ operator_id: "operations-demo-001" }),
+  });
+}
+
+export function resolveImprovementTask(
+  taskId: string,
+  resolutionNotes: string,
+): Promise<ImprovementTask> {
+  return request(`/api/operations/improvement-tasks/${taskId}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({
+      operator_id: "operations-demo-001",
+      resolution_notes: resolutionNotes,
+    }),
+  });
+}
+
+export function promoteImprovementTask(taskId: string): Promise<{
+  task: ImprovementTask;
+  knowledge_gap: KnowledgeGap;
+}> {
+  return request(`/api/operations/improvement-tasks/${taskId}/promote-to-knowledge-gap`, {
+    method: "POST",
+    body: JSON.stringify({ operator_id: "operations-demo-001" }),
   });
 }

@@ -73,6 +73,26 @@ def test_archive_removes_document_from_both_indexes():
     assert rag.search("退款") == []
 
 
+def test_replace_documents_restores_persisted_versions_as_one_snapshot():
+    rag = engine()
+
+    result = rag.replace_documents(
+        [
+            {
+                "id": "refund-policy",
+                "title": "退款说明",
+                "content": "退款将在三个工作日内处理。",
+                "version": 4,
+                "source": "operations",
+            }
+        ]
+    )
+
+    assert result["document_count"] == 1
+    assert rag.list_documents()[0]["version"] == 4
+    assert rag.search("退款")[0]["document_version"] == 4
+
+
 def test_accepts_both_chinese_and_english_knowledge_and_queries():
     rag = engine()
 

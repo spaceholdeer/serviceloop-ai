@@ -8,10 +8,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.agents.customer_service import CustomerServiceDependencies
+from app.agents.data_operations import DataOperationsAgent
 from app.agents.knowledge_operations import KnowledgeOperationsAgent
 from app.api.customer import get_customer_service_dependencies
 from app.db import get_session
 from app.schemas.operations import (
+    BadCaseResponse,
+    DataAgentRunRequest,
+    DataAgentRunResponse,
+    DataOperationsOverviewResponse,
+    DataOperationsRunResponse,
+    ImprovementTaskPromoteRequest,
+    ImprovementTaskPromoteResponse,
+    ImprovementTaskResolveRequest,
+    ImprovementTaskResponse,
     KnowledgeAgentRunRequest,
     KnowledgeAgentRunResponse,
     KnowledgeDocumentResponse,
@@ -23,6 +33,11 @@ from app.schemas.operations import (
     KnowledgePublishResult,
     KnowledgeVersionResponse,
     OperationsOverviewResponse,
+)
+from app.services.data_operations import (
+    DataOperationsService,
+    DataRecordConflictError,
+    DataRecordNotFoundError,
 )
 from app.services.knowledge_operations import (
     KnowledgeOperationsService,
@@ -48,12 +63,120 @@ def get_knowledge_operations_agent(
     return KnowledgeOperationsAgent(service=service)
 
 
+def get_data_operations_service(
+    session: Annotated[Session, Depends(get_session)],
+) -> DataOperationsService:
+    return DataOperationsService(session)
+
+
+def get_data_operations_agent(
+    service: Annotated[DataOperationsService, Depends(get_data_operations_service)],
+) -> DataOperationsAgent:
+    return DataOperationsAgent(service)
+
+
 def _not_found(exc: Exception) -> HTTPException:
     return HTTPException(status_code=404, detail=str(exc) or "knowledge record not found")
 
 
 def _conflict(exc: Exception) -> HTTPException:
     return HTTPException(status_code=409, detail=str(exc))
+
+
+@router.get("/data-overview", response_model=DataOperationsOverviewResponse)
+def data_operations_overview(
+    service: Annotated[DataOperationsService, Depends(get_data_operations_service)],
+) -> DataOperationsOverviewResponse:
+    return DataOperationsOverviewResponse.model_validate(service.overview())
+
+
+@router.get("/bad-cases", response_model=list[BadCaseResponse])
+def list_bad_cases(
+    service: Annotated[DataOperationsService, Depends(get_data_operations_service)],
+    case_status: Annotated[str | None, Query(alias="status")] = None,
+) -> list[BadCaseResponse]:
+    return [BadCaseResponse.model_validate(item) for item in service.list_bad_cases(case_status)]
+
+
+@router.get("/improvement-tasks", response_model=list[ImprovementTaskResponse])
+def list_improvement_tasks(
+    service: Annotated[DataOperationsService, Depends(get_data_operations_service)],
+    task_status: Annotated[str | None, Query(alias="status")] = None,
+) -> list[ImprovementTaskResponse]:
+    return [
+        ImprovementTaskResponse.model_validate(item)
+        for item in service.list_improvement_tasks(task_status)
+    ]
+
+
+@router.get("/data-agent/runs", response_model=list[DataOperationsRunResponse])
+def list_data_operations_runs(
+    service: Annotated[DataOperationsService, Depends(get_data_operations_service)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> list[DataOperationsRunResponse]:
+    return [DataOperationsRunResponse.model_validate(item) for item in service.list_runs(limit)]
+
+
+@router.post(
+    "/data-agent/run",
+    response_model=DataAgentRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def run_data_operations_agent(
+    payload: DataAgentRunRequest,
+    agent: Annotated[DataOperationsAgent, Depends(get_data_operations_agent)],
+) -> DataAgentRunResponse:
+    return DataAgentRunResponse.model_validate(agent.run(operator_id=payload.operator_id))
+
+
+@router.post(
+    "/improvement-tasks/{task_id}/resolve",
+    response_model=ImprovementTaskResponse,
+)
+def resolve_improvement_task(
+    task_id: str,
+    payload: ImprovementTaskResolveRequest,
+    service: Annotated[DataOperationsService, Depends(get_data_operations_service)],
+) -> ImprovementTaskResponse:
+    try:
+        task = service.resolve_task(
+            task_id=task_id,
+            operator_id=payload.operator_id,
+            resolution_notes=payload.resolution_notes,
+        )
+    except DataRecordNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except DataRecordConflictError as exc:
+        raise _conflict(exc) from exc
+    return ImprovementTaskResponse.model_validate(task)
+
+
+@router.post(
+    "/improvement-tasks/{task_id}/promote-to-knowledge-gap",
+    response_model=ImprovementTaskPromoteResponse,
+)
+def promote_improvement_task_to_knowledge_gap(
+    task_id: str,
+    payload: ImprovementTaskPromoteRequest,
+    service: Annotated[DataOperationsService, Depends(get_data_operations_service)],
+    knowledge_service: Annotated[
+        KnowledgeOperationsService, Depends(get_knowledge_operations_service)
+    ],
+) -> ImprovementTaskPromoteResponse:
+    try:
+        task, gap = service.promote_task_to_knowledge_gap(
+            task_id=task_id, operator_id=payload.operator_id
+        )
+    except DataRecordNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except DataRecordConflictError as exc:
+        raise _conflict(exc) from exc
+    return ImprovementTaskPromoteResponse(
+        task=ImprovementTaskResponse.model_validate(task),
+        knowledge_gap=KnowledgeGapResponse.model_validate(
+            knowledge_service.get_gap(gap.id)
+        ),
+    )
 
 
 @router.get("/overview", response_model=OperationsOverviewResponse)

@@ -12,11 +12,16 @@ from app.agents.customer_service import CustomerServiceDependencies
 from app.api.customer import get_customer_service_dependencies
 from app.db import Base, get_session
 from app.db.models import (
+    BadCase,
     Conversation,
+    CustomerFeedback,
     HumanResolution,
+    ImprovementTask,
     KnowledgeDocument,
     KnowledgeDraft,
     KnowledgeGap,
+    Message,
+    ToolCall,
 )
 from app.main import app
 
@@ -88,7 +93,7 @@ def _seed_gap(factory: sessionmaker[Session]) -> str:
     )
     gap = KnowledgeGap(
         id="KGC-API-001",
-        conversation=conversation,
+        conversation_id=conversation.id,
         question="X3 智能手表的特殊退货条件是什么？",
         reason="low_knowledge_relevance",
         evidence={"best_rerank_score": 0.2},
@@ -188,3 +193,112 @@ def test_operations_overview_reports_persisted_state(operations_api) -> None:
     assert overview.json()["pending_gaps"] == 1
     assert overview.json()["published_documents"] == 0
     assert overview.json()["index"]["storage"] == "mysql_backed_runtime_index"
+
+
+def test_data_agent_builds_bad_case_to_improvement_flywheel(operations_api) -> None:
+    client, factory, _ = operations_api
+    conversation = Conversation(
+        id="conversation-data-001",
+        customer_id="customer-demo-001",
+        subject="物流异常与低评分",
+        status="resolved",
+    )
+    with factory() as session:
+        session.add(conversation)
+        session.add_all(
+            [
+                Message(
+                    id="message-data-customer-001",
+                    conversation_id=conversation.id,
+                    role="customer",
+                    source="customer",
+                    content="为什么物流查不到，而且退货规则也不清楚？",
+                ),
+                CustomerFeedback(
+                    id="feedback-data-001",
+                    conversation_id=conversation.id,
+                    customer_id="customer-demo-001",
+                    rating=1,
+                    comment="没有解决物流和规则问题。",
+                ),
+                ToolCall(
+                    id="tool-data-failed-001",
+                    conversation_id=conversation.id,
+                    service_name="logistics",
+                    operation="get_logistics",
+                    input_payload={"order_id": "ORD-MISSING"},
+                    status="failed",
+                    error_message="物流记录未同步",
+                ),
+            ]
+        )
+        session.commit()
+
+    generated = client.post(
+        "/api/operations/data-agent/run",
+        json={"operator_id": "operations-demo-001"},
+    )
+
+    assert generated.status_code == 201
+    body = generated.json()
+    assert body["run"]["created_bad_case_count"] == 2
+    assert body["run"]["created_task_count"] == 2
+    assert {item["category"] for item in body["bad_cases"]} == {"experience", "tool"}
+    assert {item["category"] for item in body["improvement_tasks"]} == {
+        "experience",
+        "tool",
+    }
+
+    experience_task = next(
+        item for item in body["improvement_tasks"] if item["category"] == "experience"
+    )
+    promoted = client.post(
+        f"/api/operations/improvement-tasks/{experience_task['id']}/promote-to-knowledge-gap",
+        json={"operator_id": "operations-demo-001"},
+    )
+    assert promoted.status_code == 200
+    assert promoted.json()["knowledge_gap"]["reason"] == "data_operations_followup"
+
+    tool_task = next(item for item in body["improvement_tasks"] if item["category"] == "tool")
+    resolved = client.post(
+        f"/api/operations/improvement-tasks/{tool_task['id']}/resolve",
+        json={
+            "operator_id": "operations-demo-001",
+            "resolution_notes": "已补齐物流同步并验证查询。",
+        },
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["status"] == "resolved"
+
+    with factory() as session:
+        assert len(list(session.scalars(select(BadCase)))) == 2
+        assert len(list(session.scalars(select(ImprovementTask)))) == 2
+
+
+def test_data_agent_is_idempotent_for_existing_signals(operations_api) -> None:
+    client, factory, _ = operations_api
+    conversation = Conversation(
+        id="conversation-data-idempotent",
+        customer_id="customer-demo-001",
+        status="resolved",
+    )
+    with factory() as session:
+        session.add(conversation)
+        session.add(
+            CustomerFeedback(
+                id="feedback-data-idempotent",
+                conversation_id=conversation.id,
+                customer_id="customer-demo-001",
+                rating=2,
+            )
+        )
+        session.commit()
+
+    first = client.post("/api/operations/data-agent/run", json={})
+    second = client.post("/api/operations/data-agent/run", json={})
+
+    assert first.status_code == 201
+    assert first.json()["run"]["created_bad_case_count"] == 1
+    assert second.status_code == 201
+    assert second.json()["run"]["created_bad_case_count"] == 0
+    assert second.json()["run"]["created_task_count"] == 0

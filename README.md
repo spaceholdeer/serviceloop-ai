@@ -27,11 +27,12 @@ AI 客服运营平台。它把客户咨询、AI 处理、人工接管、数据�
 ./quickstart.sh
 ```
 
-脚本会自动检查 Docker，启动 MySQL 8，同步前后端依赖，创建数据库表，并同时启动
-FastAPI 和 React。启动完成后访问：
+脚本会自动检查 Docker，启动 MySQL 8，同步前后端依赖（包括 RAG 运行依赖），创建数据库表，
+写入幂等订单、物流、反馈、工具异常和知识缺口演示数据，并同时启动 FastAPI 和 React。启动完成后访问：
 
 - 客户前端：`http://127.0.0.1:5173/customer`
 - 人工客服工作台：`http://127.0.0.1:5173/agent`
+- 运营后台：`http://127.0.0.1:5173/operations`
 - API 文档：`http://127.0.0.1:8000/docs`
 
 按 `Ctrl+C` 会关闭 FastAPI 和 React，但不会删除 MySQL 容器或数据库 volume。需要手动
@@ -101,7 +102,7 @@ flowchart TB
 人工客服工作台入口为 `/agent`。
 
 客服可以查看待接管会话、完整聊天上下文、用户订单、AI 已调用的工具和转人工原因，
-然后接管聊天、发送人工回复并结束会话。工单处理将在后续版本接入。
+然后接管聊天、发送人工回复并结束会话；客户服务 Agent 创建的工单会直接保存到 MySQL。
 
 每次 AI 转人工都必须附带一份接管包：
 
@@ -116,14 +117,17 @@ flowchart TB
 
 ### 3. 运营端
 
-客服运营后台，计划入口为 `/operations`，也是本项目区别于普通客服机器人的核心部分。
+客服运营后台入口为 `/operations`，也是本项目区别于普通客服机器人的核心部分。
 
 运营人员可以：
 
-- 查询和筛选历史会话；
-- 查看人工接管记录、Bad Case 和 Knowledge Gap；
-- 让数据运营 Agent 分析高频失败原因；
-- 直接新增或修改知识并使新版本生效。
+- 查看由转人工产生的 Knowledge Gap 及其检索证据、人工处理结论；
+- 选择一个或多个缺口，让知识运营 Agent 按相似问题生成知识草稿；
+- 编辑并发布 Agent 草稿；
+- 新增、修改、版本化和停用知识，并使新版本进入检索索引。
+- 查看客户低评分、工具失败和异常转人工形成的 Bad Case；
+- 运行数据运营 Agent，把真实信号归组为可执行改进任务；
+- 将知识／体验类任务回流为 Knowledge Gap，或记录修复结论后关闭任务。
 
 第一版不设计独立的知识审核流。运营人员确认内容后可以直接发布，系统保留知识版本，
 便于查看历史和回退。
@@ -195,12 +199,14 @@ Knowledge Tool
 
 ### 数据运营 Agent
 
-数据运营 Agent 面向客服数据中台，回答运营人员的业务问题，例如：
+数据运营 Agent 面向客服数据中台处理真实运行信号，例如：
 
 > 最近售后问题为什么经常转人工？
 
-它会筛选相关会话和工具调用，归纳主要原因，返回相关失败案例、知识缺失数量和改进建议。
-它还负责发现高频问题、工具异常和典型 Bad Case。
+当前实现使用 LangGraph 条件边执行“加载信号 → 去重 Bad Case → 按知识、工具、体验和流程归组
+→ 生成改进任务 → 记录运行结果”。输入只来自 MySQL 中的低评分、失败 Tool Call 和异常转人工；
+同一信号由稳定键去重，重复运行不会重复创建案例或任务。知识／体验任务可以一键回流为
+Knowledge Gap，进入知识运营 Agent 已有的草稿与发布链路。
 
 ### 知识运营 Agent
 
@@ -210,6 +216,10 @@ Knowledge Tool
 例如，多个用户询问“X3 Pro 是否支持 iPhone 16”，AI 因知识不足反复转人工，而人工
 给出的结论一致。知识运营 Agent 应把这些会话聚类为一个 Knowledge Gap，结合人工结论
 生成知识草稿。运营人员修改或确认后直接入库，下一次相似问题即可由 AI 处理。
+
+当前实现使用 LangGraph workflow：先从 MySQL 读取 `pending` 缺口，再通过条件边处理空队列，
+按照问题相似度归组，并让 DeepSeek 只基于缺口证据和人工最终答复生成草稿。模型不可用或
+返回内容不合法时，系统使用不补充外部事实的确定性草稿作为回退，并显式保留待确认项。
 
 ## 六个确定性 Service
 
@@ -239,6 +249,7 @@ Service 输出结构化结果和明确错误，不自行决定客服策略。Age
 | Human Resolution | 人工最终判断、处理动作和对用户的答复 |
 | Feedback | 用户评价和客服内部反馈 |
 | Bad Case | 失败类型、影响范围和关联会话 |
+| Improvement Task | Bad Case 归组、改进动作、负责人、处理结论和知识回流引用 |
 | Knowledge Gap | 缺失知识、相关案例、频率和建议草稿 |
 
 数据中台首先支持查询、筛选、查看详情和 Agent 分析，不在第一版引入额外的大数据组件。
@@ -269,10 +280,11 @@ Service 输出结构化结果和明确错误，不自行决定客服策略。Age
 ### Demo 3：数据飞轮
 
 ```text
-多个相似问题反复转人工
-  -> 人工给出一致的正确结论
-  -> 数据中台沉淀会话与处理结果
-  -> 知识运营 Agent 发现 Knowledge Gap
+低评分、工具失败或相似问题反复转人工
+  -> 数据中台沉淀 Feedback、Tool Call、Handoff 和人工结论
+  -> 数据运营 Agent 去重并生成 Bad Case 与改进任务
+  -> 知识／体验类任务回流为 Knowledge Gap
+  -> 知识运营 Agent 归组缺口
   -> 生成知识草稿
   -> 运营人员直接补充或修改知识
   -> RAG 原子切换新索引
@@ -331,8 +343,8 @@ MySQL 8 + 内部 RAG
 - Agent、Service、RAG 保持清晰模块边界，但暂不拆成多个微服务；
 - MySQL 8 保存客服闭环、业务数据和知识版本；
 - SQLAlchemy 2 负责 ORM、建表和简单事务回滚；
-- Redis 暂不作为核心依赖，后续只在确有需要时保存 Session 临时状态；
-- 最终使用 Docker Compose 一次启动前端、后端、数据库和可选 Redis。
+- 不引入 Redis，当前工作流状态和业务数据由 LangGraph 请求状态与 MySQL 承担；
+- 使用 Docker Compose 启动 MySQL，Quickstart 同时管理前端和后端进程。
 
 架构边界说明见 [docs/architecture.md](docs/architecture.md)。
 
@@ -344,12 +356,13 @@ ServiceLoop AI 正式使用 MySQL 8，不使用 SQLite。数据库相关文件�
 serviceloop-ai/
 ├── backend/
 │   └── app/db/              # SQLAlchemy Base、连接、建表、事务和 ORM 模型
-├── database/seed/           # 本地演示种子数据
+│       └── seed_operations_demo.py # 幂等业务与运营演示数据
 └── docker-compose.yml       # 本地 MySQL 8 容器
 ```
 
-这是简历演示项目，数据库只保留五张核心表，不加入数据库锁、读写分离、复杂连接池或迁移
-框架。连接信息收敛成根目录 `.env` 中一个 `DATABASE_URL`，应用不会读取系统环境变量中的
+这是简历演示项目，数据库只保留业务闭环需要的关系表，不加入数据库锁、读写分离、复杂连接池或迁移
+框架。订单、物流、工单、反馈、Bad Case、改进任务和知识版本都使用同一个 MySQL。连接信息
+收敛成根目录 `.env` 中一个 `DATABASE_URL`，应用不会读取系统环境变量中的
 同名配置。首次启动时运行：
 
 ```bash
@@ -375,7 +388,6 @@ serviceloop-ai/
 │   │   └── rag/             # 唯一一套内部 RAG 和最小测试页面
 │   └── tests/               # 后端、RAG 和业务闭环测试
 ├── frontend/                # 用户端、人工客服端、运营端
-├── database/seed/           # 本地演示数据
 └── docs/                    # 架构和设计决策
 ```
 
@@ -384,7 +396,7 @@ serviceloop-ai/
 
 ## 当前完成情况
 
-当前是 v0.1 项目骨架，已经完成：
+当前是 v0.1 可运行演示版，已经完成：
 
 - 确定三个使用端、三个 Agent、六个 Service 和一个数据中台的边界；
 - 从原项目迁移并改造唯一一套内部 RAG；
@@ -394,7 +406,7 @@ serviceloop-ai/
 - 增加中英文知识与检索测试；
 - 建立简化的 MySQL 8 和 SQLAlchemy 2 数据库基础设施；
 - 实现 Conversation、Message、Tool Call、Handoff 和 Human Resolution 核心模型；
-- 实现订单、物流、工单、人工和数据 Service 的本地演示版本；
+- 实现订单、物流和工单的 MySQL 持久化 Service，以及人工和数据 Service；
 - 使用 LangGraph ToolNode 和条件边跑通客户服务 Agent 的直接回答与转人工分支；
 - 提供客户会话创建、列表、详情、历史消息和 `POST /api/customer/chat` 客服接口；
 - 将每轮客户消息、Agent 回复、Tool Call 和人工接管任务原子写入 MySQL；
@@ -403,25 +415,34 @@ serviceloop-ai/
 - 实现低质量检索的一次受控 Query Rewrite 和重试；
 - 实现二次低分后的结构化证据决策，可继续回答、追问澄清或转人工；
 - 修复 MySQL 同秒写入时历史消息可能因 UUID 排序而颠倒的问题；
-- 对所有转人工执行 Knowledge Gap 判定，并提供待补充知识候选查询接口。
+- 对所有转人工执行 Knowledge Gap 判定，并提供待补充知识候选查询接口；
 - 提供人工接管队列、接管详情、领取、回复和解决接口；
 - 实现独立 `/agent` 人工客服工作台，展示客户会话、转接原因、Agent 摘要和查询轨迹；
 - 人工接入后允许客户和客服继续对话，并由客户侧轮询同步最新状态；
 - 人工解决任务时原子写入最终回复和 Human Resolution，并同步结束会话；
-- 使用 Impeccable 设计规范统一客户聊天端与人工工作台，并完成桌面和移动端检查。
+- 使用 Impeccable 设计规范统一客户聊天端与人工工作台，并完成桌面和移动端检查；
+- 新增 Knowledge Document、Knowledge Version、Knowledge Gap 和 Knowledge Draft 持久化模型；
+- FastAPI 启动时从 MySQL 恢复已发布知识并重建运行时 RAG 索引；
+- 将客服 Agent 识别出的知识缺口持久化，并关联人工最终处理结论；
+- 实现知识运营 Agent 的缺口加载、相似问题归组、草稿生成和确定性回退工作流；
+- 提供知识缺口、Agent 草稿、知识发布、版本历史与停用 API；
+- 实现 `/operations` 知识运营后台，跑通“缺口 → 草稿 → 发布 → 索引生效”；
+- Quickstart 自动写入幂等订单、物流、反馈、失败 Tool Call 和知识缺口数据；
+- 新增 Customer Order、Shipment、Support Ticket、Feedback、Bad Case、Improvement Task 和 Data Operations Run 模型；
+- 客户端在人工解决后提供服务反馈，低评分自动成为数据运营信号；
+- 实现数据运营 Agent 的信号加载、稳定去重、案例归组、改进任务和空队列条件边；
+- 实现 `/operations` 数据飞轮，支持查看证据、回流知识缺口和记录改进结论；
+- 将生产运行的 Order、Logistics 和 Ticket Tool 切换到 MySQL，并保留依赖注入测试替身。
 
-目前尚未实现运营前端、真实订单／物流数据、知识持久化、知识缺失候选持久化与完整运营
-API，以及数据运营和知识运营 Agent。客户问答和人工接管闭环已经持久化，但运营闭环仍
-属于后续阶段，不应在 README 中被误认为已经完成。
+当前产品演示闭环已经完整持久化。正式登录、组织级权限、真实企业数据接入和生产部署属于
+上线工程，不在这个简历项目的轻量边界内。
 
 ## 建议开发顺序
 
-1. 持久化知识文档并在 FastAPI 启动时重建 RAG 索引；
-2. 在现有五个核心模型上补充 Feedback、Bad Case 和 Knowledge Gap 等运营模型；
-3. 完成运营端的数据查询、Bad Case、Knowledge Gap 和知识补充；
-4. 实现数据运营 Agent 与知识运营 Agent；
-5. 跑通知识更新后的数据飞轮 Demo；
-6. 补充完整演示数据。
+1. 接入真实电商订单、物流和工单系统；
+2. 根据真实运行数据校准 ReRank 阈值和 Bad Case 归组规则；
+3. 接入企业身份系统和组织级权限；
+4. 增加生产部署、监控与告警。
 
 这个顺序优先保证业务闭环真实可演示，再逐步增强模型效果和工程能力。
 
@@ -462,6 +483,7 @@ GET  /api/customer/conversations/{id}?customer_id=...
 GET  /api/customer/conversations/{id}/messages?customer_id=...
 POST /api/customer/chat
 POST /api/customer/conversations/{id}/messages  # 人工服务中客户继续回复
+POST /api/customer/conversations/{id}/feedback
 ```
 
 人工客服工作台 API：
@@ -476,10 +498,27 @@ POST /api/agent/handoffs/{id}/resolve
 
 演示订单号为 `ORD-202608-1001` 和 `ORD-202608-1002`。
 
-查看当前进程内待补充知识候选：
+知识运营后台 API：
 
-```bash
-curl http://127.0.0.1:8000/api/operations/knowledge-gaps
+```text
+GET    /api/operations/overview
+GET    /api/operations/knowledge-gaps
+POST   /api/operations/knowledge-agent/run
+GET    /api/operations/knowledge-drafts
+PATCH  /api/operations/knowledge-drafts/{id}
+POST   /api/operations/knowledge-drafts/{id}/publish
+GET    /api/operations/knowledge-documents
+POST   /api/operations/knowledge-documents
+PUT    /api/operations/knowledge-documents/{id}
+GET    /api/operations/knowledge-documents/{id}/versions
+DELETE /api/operations/knowledge-documents/{id}
+GET    /api/operations/data-overview
+GET    /api/operations/bad-cases
+POST   /api/operations/data-agent/run
+GET    /api/operations/data-agent/runs
+GET    /api/operations/improvement-tasks
+POST   /api/operations/improvement-tasks/{id}/resolve
+POST   /api/operations/improvement-tasks/{id}/promote-to-knowledge-gap
 ```
 
 ## 启动当前 RAG 测试页面

@@ -3,3 +3,6 @@
 from app.agents.customer_service import CustomerServiceAgent, CustomerServiceDependencies
 
 __all__ = ["CustomerServiceAgent", "CustomerServiceDependencies"]
+from app.agents.data_operations import DataOperationsAgent
+
+__all__ = ["DataOperationsAgent"]

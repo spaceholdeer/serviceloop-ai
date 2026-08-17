@@ -105,6 +105,12 @@ class KnowledgeOperationsService:
     ) -> list[dict[str, Any]]:
         return [self._gap_payload(item) for item in self.repository.list_gaps(status=status, ids=ids)]
 
+    def get_gap(self, gap_id: str) -> dict[str, Any]:
+        gap = self.repository.get_gap(gap_id)
+        if gap is None:
+            raise KnowledgeRecordNotFoundError(gap_id)
+        return self._gap_payload(gap)
+
     def dismiss_gap(self, gap_id: str) -> dict[str, Any]:
         gap = self.repository.get_gap(gap_id)
         if gap is None:

@@ -122,10 +122,11 @@ info "MySQL 已就绪，数据保存在 Docker volume serviceloop-ai_mysql_data"
 printf "\n%b\n" "${BOLD}[2/4] 准备后端${RESET}"
 (
   cd "$BACKEND_DIR"
-  uv sync --extra dev
+  uv sync --extra rag --extra dev
   uv run python -m app.db.init_db
+  uv run python -m app.db.seed_operations_demo
 )
-info "FastAPI 依赖和数据库表已准备"
+info "FastAPI 依赖、数据库表和幂等业务演示数据已准备"
 
 printf "\n%b\n" "${BOLD}[3/4] 准备前端${RESET}"
 (
@@ -155,6 +156,7 @@ kill -0 "$FRONTEND_PID" 2>/dev/null || fail "React 启动失败。"
 printf "\n%b\n" "${GREEN}${BOLD}ServiceLoop AI 已启动${RESET}"
 printf "%s\n" "客户前端:  http://127.0.0.1:5173/customer"
 printf "%s\n" "客服工作台: http://127.0.0.1:5173/agent"
+printf "%s\n" "运营后台:  http://127.0.0.1:5173/operations"
 printf "%s\n" "API 文档:  http://127.0.0.1:8000/docs"
 printf "%s\n" "健康检查:  http://127.0.0.1:8000/health"
 printf "\n%s\n" "按 Ctrl+C 关闭前后端；MySQL 数据会继续保留。"

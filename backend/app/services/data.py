@@ -1,6 +1,6 @@
-"""客服数据记录服务的最小内存实现。
+"""Customer Service Agent 单次运行中的事件收集器。
 
-第一版由图节点自动调用，不暴露为 Agent Tool。后续仓储阶段再替换为 MySQL 持久化。
+图节点用它整理结构化事件；请求结束后由应用服务把消息、Tool Call 与知识缺口写入 MySQL。
 """
 
 from __future__ import annotations

@@ -32,6 +32,12 @@ button { color: inherit; }
 textarea { caret-color: var(--pine); }
 :where(button, textarea, a, [tabindex]):focus-visible { outline: 2px solid #d6a64a; outline-offset: 3px; }
 
+.service-feedback { display: flex; width: min(820px, calc(100% - 48px)); min-height: 44px; margin: 0 auto 9px; padding: 6px 8px 6px 13px; align-items: center; gap: 8px; color: #405149; font-size: 11px; border: 1px solid #cfd5ce; border-radius: 6px; background: #f8f7f2; }
+.service-feedback > span { margin-right: auto; }
+.service-feedback button { display: flex; min-height: 32px; padding: 0 9px; align-items: center; gap: 5px; color: #34473f; font-size: 10px; font-weight: 650; border: 1px solid #c3cbc4; border-radius: 4px; background: #fff; cursor: pointer; }
+.service-feedback button:hover { color: #173c32; border-color: #78978a; background: #f0f3ed; }
+.service-feedback button:disabled { color: #909994; background: #eceee9; cursor: wait; }
+
 .app-shell { display: flex; min-height: 100vh; background: var(--canvas); }
 
 .sidebar {

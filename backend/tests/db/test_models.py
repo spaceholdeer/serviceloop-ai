@@ -9,8 +9,6 @@ from app.db.models import (
     Handoff,
     HumanResolution,
     KnowledgeDocument,
-    KnowledgeDraft,
-    KnowledgeGap,
     KnowledgeVersion,
     Message,
     ToolCall,
@@ -28,6 +26,13 @@ def test_customer_service_core_tables_are_registered():
         "knowledge_versions",
         "knowledge_gaps",
         "knowledge_drafts",
+        "customer_orders",
+        "shipments",
+        "support_tickets",
+        "customer_feedback",
+        "bad_cases",
+        "improvement_tasks",
+        "data_operations_runs",
     }.issubset(Base.metadata.tables)
 
 

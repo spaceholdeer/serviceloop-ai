@@ -18,6 +18,8 @@ from app.schemas.customer import (
     ConversationResponse,
     CustomerChatRequest,
     CustomerChatResponse,
+    CustomerFeedbackRequest,
+    CustomerFeedbackResponse,
     CustomerHumanMessageRequest,
     MessageResponse,
 )
@@ -26,6 +28,7 @@ from app.services.customer_chat import (
     ConversationUnavailableError,
     CustomerChatService,
 )
+from app.services.data_operations import DataOperationsService, DataRecordNotFoundError
 from app.services.knowledge import KnowledgeService
 
 router = APIRouter(prefix="/api/customer", tags=["customer"])
@@ -47,7 +50,17 @@ def get_runtime_knowledge_service() -> KnowledgeService:
 
 @lru_cache(maxsize=1)
 def get_customer_service_dependencies() -> CustomerServiceDependencies:
-    return CustomerServiceDependencies(knowledge=get_runtime_knowledge_service())
+    from app.services.logistics import LogisticsService
+    from app.services.order import OrderService
+    from app.services.ticket import TicketService
+
+    factory = create_session_factory()
+    return CustomerServiceDependencies(
+        knowledge=get_runtime_knowledge_service(),
+        order=OrderService(session_factory=factory),
+        logistics=LogisticsService(session_factory=factory),
+        ticket=TicketService(session_factory=factory),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -73,6 +86,27 @@ def get_customer_conversation_service(
 
 def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="conversation not found")
+
+
+@router.post(
+    "/conversations/{conversation_id}/feedback",
+    response_model=CustomerFeedbackResponse,
+)
+def submit_conversation_feedback(
+    conversation_id: str,
+    payload: CustomerFeedbackRequest,
+    session: Annotated[Session, Depends(get_session)],
+) -> CustomerFeedbackResponse:
+    try:
+        feedback = DataOperationsService(session).submit_feedback(
+            conversation_id=conversation_id,
+            customer_id=payload.customer_id,
+            rating=payload.rating,
+            comment=payload.comment,
+        )
+    except DataRecordNotFoundError as exc:
+        raise _not_found() from exc
+    return CustomerFeedbackResponse.model_validate(feedback)
 
 
 @router.post(

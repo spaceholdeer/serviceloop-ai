@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.agent import router as agent_router
+from app.api.customer import get_runtime_knowledge_service
 from app.api.customer import router as customer_router
 from app.api.operations import router as operations_router
 
-app = FastAPI(title="ServiceLoop AI", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    get_runtime_knowledge_service()
+    yield
+
+
+app = FastAPI(title="ServiceLoop AI", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],

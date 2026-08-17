@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.repositories import BusinessRepository
+
 DEFAULT_LOGISTICS = {
     "ORD-202608-1001": {
         "order_id": "ORD-202608-1001",
@@ -19,11 +23,40 @@ DEFAULT_LOGISTICS = {
 
 
 class LogisticsService:
-    def __init__(self, shipments: dict[str, dict] | None = None):
+    def __init__(
+        self,
+        shipments: dict[str, dict] | None = None,
+        *,
+        session_factory: sessionmaker[Session] | None = None,
+    ):
         self._shipments = deepcopy(shipments if shipments is not None else DEFAULT_LOGISTICS)
+        self._session_factory = session_factory
 
     def get_logistics(self, *, customer_id: str, order_id: str) -> dict:
-        shipment = self._shipments.get(order_id.strip())
+        clean_order_id = order_id.strip()
+        if self._session_factory is not None:
+            with self._session_factory() as session:
+                row = BusinessRepository(session).get_shipment(clean_order_id, customer_id)
+                if row:
+                    record, order = row
+                    shipment = {
+                        "order_id": order.order_number,
+                        "customer_id": order.customer_id,
+                        "carrier": record.carrier,
+                        "tracking_number": record.tracking_number,
+                        "status": record.status,
+                        "latest_event": record.latest_event,
+                        "latest_event_at": record.latest_event_at.isoformat(),
+                        "estimated_delivery": (
+                            record.estimated_delivery.date().isoformat()
+                            if record.estimated_delivery
+                            else None
+                        ),
+                    }
+                else:
+                    shipment = None
+        else:
+            shipment = self._shipments.get(clean_order_id)
         if shipment is None or shipment["customer_id"] != customer_id:
             return {
                 "ok": False,

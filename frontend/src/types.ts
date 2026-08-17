@@ -89,3 +89,131 @@ export interface HandoffDetail extends HandoffSummary {
   context_package: Record<string, unknown>;
   messages: ApiMessage[];
 }
+
+export interface OperationsOverview {
+  published_documents: number;
+  pending_gaps: number;
+  open_drafts: number;
+  index: {
+    ready?: boolean;
+    document_count?: number;
+    chunk_count?: number;
+    index_version?: number;
+    storage?: string;
+  };
+}
+
+export interface KnowledgeGap {
+  id: string;
+  conversation_id: string | null;
+  question: string;
+  reason: string;
+  evidence: Record<string, unknown>;
+  status: "pending" | "drafted" | "resolved" | "dismissed";
+  draft_id: string | null;
+  human_resolution: {
+    resolution_code: string;
+    action_taken: string;
+    reply_to_customer: string;
+  } | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDraft {
+  id: string;
+  title: string;
+  content: string;
+  gap_ids: string[];
+  status: "draft" | "published" | "discarded";
+  generated_by: string;
+  generation_notes: string | null;
+  published_document_id: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  content: string;
+  source: string;
+  status: "published" | "archived";
+  current_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeVersion {
+  id: string;
+  document_id: string;
+  version: number;
+  title: string;
+  content: string;
+  created_by: string;
+  published_at: string;
+}
+
+export interface CustomerFeedback {
+  id: string;
+  conversation_id: string;
+  customer_id: string;
+  rating: number;
+  comment: string | null;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BadCase {
+  id: string;
+  signal_key: string;
+  conversation_id: string | null;
+  category: "knowledge" | "tool" | "experience" | "process" | string;
+  severity: "high" | "medium" | "low" | string;
+  summary: string;
+  evidence: Record<string, unknown>;
+  source_type: string;
+  source_id: string;
+  status: "open" | "tasked" | "resolved" | "dismissed";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImprovementTask {
+  id: string;
+  category: string;
+  title: string;
+  description: string;
+  bad_case_ids: string[];
+  evidence: Record<string, unknown>;
+  status: "open" | "resolved";
+  owner_id: string | null;
+  linked_knowledge_gap_id: string | null;
+  resolution_notes: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DataOperationsRun {
+  id: string;
+  operator_id: string;
+  status: string;
+  processed_signal_count: number;
+  created_bad_case_count: number;
+  created_task_count: number;
+  summary: string;
+  findings: Array<Record<string, unknown>>;
+  created_at: string;
+}
+
+export interface DataOperationsOverview {
+  feedback_total: number;
+  negative_feedback: number;
+  failed_tool_calls: number;
+  open_bad_cases: number;
+  open_improvement_tasks: number;
+  latest_run: DataOperationsRun | null;
+}

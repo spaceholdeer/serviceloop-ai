@@ -102,3 +102,85 @@ class OperationsOverviewResponse(BaseModel):
     pending_gaps: int
     open_drafts: int
     index: dict[str, Any]
+
+
+class BadCaseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    signal_key: str
+    conversation_id: str | None
+    category: str
+    severity: str
+    summary: str
+    evidence: dict[str, Any]
+    source_type: str
+    source_id: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ImprovementTaskResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    category: str
+    title: str
+    description: str
+    bad_case_ids: list[str]
+    evidence: dict[str, Any]
+    status: str
+    owner_id: str | None
+    linked_knowledge_gap_id: str | None
+    resolution_notes: str | None
+    resolved_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DataOperationsRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    operator_id: str
+    status: str
+    processed_signal_count: int
+    created_bad_case_count: int
+    created_task_count: int
+    summary: str
+    findings: list[dict[str, Any]]
+    created_at: datetime
+
+
+class DataOperationsOverviewResponse(BaseModel):
+    feedback_total: int
+    negative_feedback: int
+    failed_tool_calls: int
+    open_bad_cases: int
+    open_improvement_tasks: int
+    latest_run: DataOperationsRunResponse | None
+
+
+class DataAgentRunRequest(BaseModel):
+    operator_id: str = Field(default="operations-demo-001", min_length=1, max_length=64)
+
+
+class DataAgentRunResponse(BaseModel):
+    run: DataOperationsRunResponse
+    bad_cases: list[BadCaseResponse]
+    improvement_tasks: list[ImprovementTaskResponse]
+
+
+class ImprovementTaskResolveRequest(BaseModel):
+    operator_id: str = Field(default="operations-demo-001", min_length=1, max_length=64)
+    resolution_notes: str = Field(min_length=1, max_length=4000)
+
+
+class ImprovementTaskPromoteRequest(BaseModel):
+    operator_id: str = Field(default="operations-demo-001", min_length=1, max_length=64)
+
+
+class ImprovementTaskPromoteResponse(BaseModel):
+    task: ImprovementTaskResponse
+    knowledge_gap: KnowledgeGapResponse

@@ -12,13 +12,21 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.customer import get_customer_service_agent
 from app.db import Base, get_session
-from app.db.models import Conversation, Handoff, Message, ToolCall
+from app.db.models import (
+    Conversation,
+    CustomerFeedback,
+    Handoff,
+    KnowledgeGap,
+    Message,
+    ToolCall,
+)
 from app.main import app
 
 
 class StubCustomerServiceAgent:
-    def __init__(self, *, handoff_required: bool = False):
+    def __init__(self, *, handoff_required: bool = False, knowledge_gap: bool = False):
         self.handoff_required = handoff_required
+        self.knowledge_gap = knowledge_gap
         self.invocations: list[dict[str, Any]] = []
 
     def invoke(
@@ -38,16 +46,29 @@ class StubCustomerServiceAgent:
             }
         )
         if self.handoff_required:
+            handoff_reason = "knowledge_insufficient" if self.knowledge_gap else "refund_request"
             return {
                 "final_answer": "已经为你转接人工客服。",
                 "handoff_required": True,
-                "handoff_reason": "refund_request",
+                "handoff_reason": handoff_reason,
                 "handoff": {
                     "handoff_id": "HOF-API-001",
                     "agent_summary": "客户申请退款",
                     "context_package": {"risk": "refund"},
                 },
                 "tool_events": [],
+                "knowledge_gap_candidate": (
+                    {
+                        "knowledge_gap_id": "KGC-CUSTOMER-001",
+                        "conversation_id": conversation_id,
+                        "question": message,
+                        "reason": "knowledge_insufficient",
+                        "evidence": {"best_rerank_score": 0.18},
+                        "status": "pending",
+                    }
+                    if self.knowledge_gap
+                    else None
+                ),
             }
         return {
             "final_answer": "预计明天送达。",
@@ -266,3 +287,56 @@ def test_handoff_is_persisted_and_stops_further_agent_replies(api_database):
     )
     assert second.status_code == 409
     assert len(agent.invocations) == 1
+
+
+def test_customer_knowledge_gap_is_persisted_for_operations(api_database):
+    agent = StubCustomerServiceAgent(handoff_required=True, knowledge_gap=True)
+    app.dependency_overrides[get_customer_service_agent] = lambda: agent
+
+    response = TestClient(app).post(
+        "/api/customer/chat",
+        json={"customer_id": "customer-demo-001", "message": "X3 特殊退货规则是什么？"},
+    )
+
+    assert response.status_code == 200
+    with api_database() as session:
+        gap = session.scalar(select(KnowledgeGap))
+        assert gap is not None
+        assert gap.id == "KGC-CUSTOMER-001"
+        assert gap.status == "pending"
+        assert gap.reason == "knowledge_insufficient"
+
+
+def test_customer_feedback_is_upserted_for_data_operations(api_database):
+    conversation = Conversation(
+        id="conversation-feedback-001",
+        customer_id="customer-demo-001",
+        subject="服务反馈",
+        status="resolved",
+    )
+    with api_database() as session:
+        session.add(conversation)
+        session.commit()
+
+    client = TestClient(app)
+    created = client.post(
+        f"/api/customer/conversations/{conversation.id}/feedback",
+        json={
+            "customer_id": "customer-demo-001",
+            "rating": 2,
+            "comment": "回答最终正确，但中间转接过多。",
+        },
+    )
+    updated = client.post(
+        f"/api/customer/conversations/{conversation.id}/feedback",
+        json={"customer_id": "customer-demo-001", "rating": 4},
+    )
+
+    assert created.status_code == 200
+    assert updated.status_code == 200
+    assert created.json()["id"] == updated.json()["id"]
+    with api_database() as session:
+        feedback = session.scalar(select(CustomerFeedback))
+        assert feedback is not None
+        assert feedback.rating == 4
+        assert feedback.comment is None

@@ -19,6 +19,25 @@ class CustomerHumanMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 
 
+class CustomerFeedbackRequest(BaseModel):
+    customer_id: str = Field(min_length=1, max_length=64)
+    rating: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class CustomerFeedbackResponse(BaseModel):
+    id: str
+    conversation_id: str
+    customer_id: str
+    rating: int
+    comment: str | None
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class CustomerChatResponse(BaseModel):
     conversation_id: str
     conversation_status: str
